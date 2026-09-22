@@ -150,6 +150,22 @@ import { RecargasTelecomModule } from './recargas-telecom/recargas-telecom.modul
 import { CiclosTelecomModule } from './ciclos-telecom/ciclos-telecom.module';
 import { HistorialComponentesActivoModule } from './historial-componentes-activo/historial-componentes-activo.module';
 import { HistorialComponentesActivo } from './historial-componentes-activo/entities/historial-componentes-activo.entity';
+import { PiezasRepuestosModule } from './piezas-repuestos/piezas-repuestos.module';
+import { UnidadesRepuestosModule } from './unidades-repuestos/unidades-repuestos.module';
+import { ExistenciasRepuestosModule } from './existencias-repuestos/existencias-repuestos.module';
+import { MovimientosRepuestosModule } from './movimientos-repuestos/movimientos-repuestos.module';
+import { PiezaRepuesto } from './piezas-repuestos/entities/piezas-repuesto.entity';
+import { UnidadRepuesto } from './unidades-repuestos/entities/unidades-repuesto.entity';
+import { ExistenciaRepuesto } from './existencias-repuestos/entities/existencias-repuesto.entity';
+import { MovimientoRepuesto } from './movimientos-repuestos/entities/movimientos-repuesto.entity';
+import { ComponenteInstaladoActivo } from './componentes-instalados-activo/entities/componente-instalado-activo.entity';
+import { ComponentesInstaladosActivoModule } from './componentes-instalados-activo/componentes-instalados-activo.module';
+import { FormulariosReparacionModule } from './formularios-reparacion/formularios-reparacion.module';
+import { PoliticasFormularioTallerModule } from './politicas-formulario-taller/politicas-formulario-taller.module';
+import { PoliticaFormularioTaller } from './politicas-formulario-taller/entities/politicas-formulario-taller.entity';
+import { FormularioReparacion } from './formularios-reparacion/entities/formularios-reparacion.entity';
+import { ProgramacionesMantenimientoModule } from './programaciones-mantenimiento/programaciones-mantenimiento.module';
+import { ProgramacionMantenimiento } from './programaciones-mantenimiento/entities/programaciones-mantenimiento.entity';
 
 @Module({
   imports: [
@@ -240,6 +256,14 @@ import { HistorialComponentesActivo } from './historial-componentes-activo/entit
           ActaAsignacion,
           ActaAsignacionRecurso,
           OutboxEventoIntegracion,
+          PiezaRepuesto,
+          UnidadRepuesto,
+          ExistenciaRepuesto,
+          MovimientoRepuesto,
+          ComponenteInstaladoActivo,
+          PoliticaFormularioTaller,
+          FormularioReparacion,
+          ProgramacionMantenimiento,
         ],
         synchronize: false,
       }),
@@ -313,6 +337,14 @@ import { HistorialComponentesActivo } from './historial-componentes-activo/entit
     RecargasTelecomModule,
     CiclosTelecomModule,
     HistorialComponentesActivoModule,
+    PiezasRepuestosModule,
+    UnidadesRepuestosModule,
+    ExistenciasRepuestosModule,
+    MovimientosRepuestosModule,
+    ComponentesInstaladosActivoModule,
+    FormulariosReparacionModule,
+    PoliticasFormularioTallerModule,
+    ProgramacionesMantenimientoModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

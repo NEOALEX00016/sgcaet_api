@@ -18,6 +18,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { Empresa } from '../empresas/entities/empresa.entity';
 import { OidcConfigService } from './oidc-config.service';
 import { ConfiguracionOperativaTenant } from '../configuracion-operativa-tenant/entities/configuracion-operativa-tenant.entity';
+import { PermissionsEvaluatorService } from './permissions-evaluator.service';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { ConfiguracionOperativaTenant } from '../configuracion-operativa-tenant/
   providers: [
     AuthService,
     OidcConfigService,
+    PermissionsEvaluatorService,
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
@@ -66,6 +68,6 @@ import { ConfiguracionOperativaTenant } from '../configuracion-operativa-tenant/
       useClass: PermissionsGuard,
     },
   ],
-  exports: [AuthService],
+  exports: [AuthService, PermissionsEvaluatorService],
 })
 export class AuthModule {}

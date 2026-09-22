@@ -6,6 +6,7 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
 } from 'class-validator';
 
 export class CreateReparacionActivoDto {
@@ -31,6 +32,7 @@ export class CreateReparacionActivoDto {
 
   @IsOptional()
   @IsNumberString()
+  @Matches(/^\d+(?:\.\d+)?$/, { message: 'costo no puede ser negativo' })
   costo?: string;
 
   @IsOptional()

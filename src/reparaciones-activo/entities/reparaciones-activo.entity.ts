@@ -50,10 +50,21 @@ export class ReparacionActivo {
   @Column({ name: 'estado', length: 20, default: 'abierta' })
   estado: string;
 
-  @Column({ name: 'estado_comunicacion_diagnostico', length: 20, default: 'pendiente' })
+  @Column({ name: 'estado_activo_anterior', length: 30, nullable: true })
+  estadoActivoAnterior?: string;
+
+  @Column({
+    name: 'estado_comunicacion_diagnostico',
+    length: 20,
+    default: 'pendiente',
+  })
   estadoComunicacionDiagnostico: string;
 
-  @Column({ name: 'diagnostico_comunicado_en', type: 'timestamptz', nullable: true })
+  @Column({
+    name: 'diagnostico_comunicado_en',
+    type: 'timestamptz',
+    nullable: true,
+  })
   diagnosticoComunicadoEn?: Date;
 
   @Column({ name: 'diagnostico_comunicado_por', type: 'uuid', nullable: true })
@@ -61,6 +72,13 @@ export class ReparacionActivo {
 
   @Column({ name: 'solicitud_origen_id', type: 'uuid', nullable: true })
   solicitudOrigenId?: string;
+
+  @Column({
+    name: 'programacion_mantenimiento_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  programacionMantenimientoId?: string;
 
   @Column({ name: 'resultado', length: 20, nullable: true })
   resultado?: string;

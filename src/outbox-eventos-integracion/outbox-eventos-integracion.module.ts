@@ -7,6 +7,11 @@ import { OutboxEventosIntegracionWorker } from './outbox-eventos-integracion.wor
 import { OutboxEventosIntegracionController } from './outbox-eventos-integracion.controller';
 import { OutboxEventosIntegracionService } from './outbox-eventos-integracion.service';
 import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities/bitacora-auditoria-sistema.entity';
+import { ReparacionActivo } from '../reparaciones-activo/entities/reparaciones-activo.entity';
+import { Asignacion } from '../asignaciones/entities/asignacione.entity';
+import { Persona } from '../personas/entities/persona.entity';
+import { Activo } from '../activos/entities/activo.entity';
+import { ConfiguracionOperativaTenantModule } from '../configuracion-operativa-tenant/configuracion-operativa-tenant.module';
 
 @Module({
   imports: [
@@ -14,8 +19,13 @@ import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities
       OutboxEventoIntegracion,
       Solicitud,
       BitacoraAuditoriaSistema,
+      ReparacionActivo,
+      Asignacion,
+      Persona,
+      Activo,
     ]),
     IntegracionesMesaAyudaModule,
+    ConfiguracionOperativaTenantModule,
   ],
   providers: [OutboxEventosIntegracionWorker, OutboxEventosIntegracionService],
   controllers: [OutboxEventosIntegracionController],

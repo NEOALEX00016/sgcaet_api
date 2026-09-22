@@ -42,4 +42,12 @@ export class DocumentQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsString()
+  entidadRelacionada?: string;
+
+  @IsOptional()
+  @IsUUID()
+  entidadRelacionadaId?: string;
 }

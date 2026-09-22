@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsIn, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { IsArray, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Length, ValidateNested } from 'class-validator';
 
 export class CambioComponenteDto {
   @IsString()
@@ -25,6 +25,19 @@ export class CambioComponenteDto {
   motivo?: string;
 }
 
+export class RepuestoReservadoResolucionDto {
+  @IsUUID()
+  piezaRepuestoId: string;
+
+  @IsOptional()
+  @IsUUID()
+  unidadRepuestoId?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  cantidad?: string;
+}
+
 export class ResolverReparacionActivoDto {
   @IsIn(['resuelto', 'parcial', 'sin_reparacion', 'reemplazo_requerido'])
   resultado: string;
@@ -41,8 +54,15 @@ export class ResolverReparacionActivoDto {
   @Length(2, 2000)
   observaciones?: string;
 
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CambioComponenteDto)
-  cambiosComponentes: CambioComponenteDto[];
+  cambiosComponentes: CambioComponenteDto[] = [];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RepuestoReservadoResolucionDto)
+  repuestosReservados?: RepuestoReservadoResolucionDto[];
 }

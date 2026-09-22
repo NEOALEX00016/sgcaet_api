@@ -10,6 +10,7 @@ import { FormularioRegla } from '../formulario-reglas/entities/formulario-regla.
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Evidencia } from '../evidencias/entities/evidencia.entity';
 import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities/bitacora-auditoria-sistema.entity';
+import { FormularioReparacion } from '../formularios-reparacion/entities/formularios-reparacion.entity';
 
 @Module({
   imports: [
@@ -22,9 +23,11 @@ import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities
       Usuario,
       Evidencia,
       BitacoraAuditoriaSistema,
+      FormularioReparacion,
     ]),
   ],
   controllers: [FormularioRespuestasController],
   providers: [FormularioRespuestasService],
+  exports: [FormularioRespuestasService],
 })
 export class FormularioRespuestasModule {}

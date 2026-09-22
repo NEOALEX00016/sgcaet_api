@@ -9,7 +9,7 @@ import {
 } from './dto/create-formulario-respuesta.dto';
 import { UpdateFormularioRespuestaDto } from './dto/update-formulario-respuesta.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { FormularioRespuesta } from './entities/formulario-respuesta.entity';
 import { FormularioRespuestaDetalle } from './entities/formulario-respuesta-detalle.entity';
 import { FormularioVersione } from '../formulario-versiones/entities/formulario-versione.entity';
@@ -19,6 +19,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Evidencia } from '../evidencias/entities/evidencia.entity';
 import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities/bitacora-auditoria-sistema.entity';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { FormularioReparacion } from '../formularios-reparacion/entities/formularios-reparacion.entity';
 
 export type FormularioRespuestasFilters = {
   entidadRelacionada?: string;
@@ -45,6 +46,9 @@ export class FormularioRespuestasService {
     private readonly evidenciasRepository: Repository<Evidencia>,
     @InjectRepository(BitacoraAuditoriaSistema)
     private readonly bitacoraRepository: Repository<BitacoraAuditoriaSistema>,
+    @InjectRepository(FormularioReparacion)
+    private readonly formulariosReparacionRepository: Repository<FormularioReparacion>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(
@@ -99,6 +103,65 @@ export class FormularioRespuestasService {
     return this.findOne(saved.id, user);
   }
 
+  async createFromFrozenVersion(
+    createDto: CreateFormularioRespuestaDto,
+    user: AuthenticatedUser,
+    manager: EntityManager,
+  ): Promise<FormularioRespuesta> {
+    const versionesRepository = manager.getRepository(FormularioVersione);
+    const respuestasRepository = manager.getRepository(FormularioRespuesta);
+    const version = await versionesRepository.findOne({
+      where: { id: createDto.formularioVersionId, empresaId: user.empresaId },
+    });
+    if (!version)
+      throw new NotFoundException(
+        'Formulario version no encontrada para la empresa indicada',
+      );
+
+    const respondidoPor = user.userId;
+    await this.validarRespondidoPor(respondidoPor, user.empresaId, manager);
+    await this.validarDetallesYReglas(
+      createDto.formularioVersionId,
+      createDto.detalles ?? [],
+      user.empresaId,
+      manager,
+    );
+    const {
+      detalles,
+      evidenciaIds,
+      respondidoPor: _ignoredActor,
+      respondidoEn: _ignoredTime,
+      firmaUrl: _ignoredSignature,
+      ...payload
+    } = createDto;
+    const saved = await respuestasRepository.save(
+      respuestasRepository.create({
+        ...payload,
+        empresaId: user.empresaId,
+        respondidoPor,
+        respondidoEn: new Date(),
+      }),
+    );
+    if (detalles?.length)
+      await this.guardarDetalles(saved.id, saved.empresaId, detalles, manager);
+    if (evidenciaIds?.length)
+      await this.vincularEvidencias(saved, evidenciaIds, manager);
+    await this.registrarBitacora(
+      user,
+      'FORMULARIO_RESPUESTAS_CREAR',
+      'formulario_respuestas',
+      saved.id,
+      null,
+      {
+        formularioVersionId: saved.formularioVersionId,
+        entidadRelacionada: saved.entidadRelacionada,
+        entidadRelacionadaId: saved.entidadRelacionadaId,
+      },
+      manager,
+    );
+    return saved;
+  }
+
   async findAll(
     user: AuthenticatedUser,
     filters: FormularioRespuestasFilters = {},
@@ -139,7 +202,18 @@ export class FormularioRespuestasService {
     updateDto: UpdateFormularioRespuestaDto,
     user: AuthenticatedUser,
   ): Promise<FormularioRespuesta> {
-    const actual = await this.findOne(id, user);
+    return this.dataSource.transaction(async (manager) => {
+      const respuestasRepository = manager.getRepository(FormularioRespuesta);
+      const detallesRepository = manager.getRepository(
+        FormularioRespuestaDetalle,
+      );
+      const actual = await respuestasRepository.findOne({
+        where: { id, empresaId: user.empresaId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!actual)
+        throw new NotFoundException(`Formulario respuesta ${id} no encontrada`);
+      await this.assertMutableWorkshopResponse(id, user.empresaId, manager);
 
     if (
       updateDto.formularioVersionId &&
@@ -153,7 +227,11 @@ export class FormularioRespuestasService {
     const { detalles, evidenciaIds, ...payload } = updateDto;
 
     if (payload.respondidoPor) {
-      await this.validarRespondidoPor(payload.respondidoPor, user.empresaId);
+      await this.validarRespondidoPor(
+        payload.respondidoPor,
+        user.empresaId,
+        manager,
+      );
     }
 
     if (detalles) {
@@ -161,26 +239,27 @@ export class FormularioRespuestasService {
         actual.formularioVersionId,
         detalles,
         user.empresaId,
+        manager,
       );
     }
 
-    const merged = this.respuestasRepository.merge(actual, {
+    const merged = respuestasRepository.merge(actual, {
       ...payload,
       respondidoEn: payload.respondidoEn
         ? new Date(payload.respondidoEn)
         : actual.respondidoEn,
     });
-    const saved = await this.respuestasRepository.save(merged);
+    const saved = await respuestasRepository.save(merged);
 
     if (detalles?.length) {
-      await this.detallesRepository.delete({
+      await detallesRepository.delete({
         formularioRespuestaId: actual.id,
       });
-      await this.guardarDetalles(actual.id, actual.empresaId, detalles);
+      await this.guardarDetalles(actual.id, actual.empresaId, detalles, manager);
     }
 
     if (evidenciaIds?.length) {
-      await this.vincularEvidencias(saved, evidenciaIds);
+      await this.vincularEvidencias(saved, evidenciaIds, manager);
     }
 
     await this.registrarBitacora(
@@ -196,15 +275,24 @@ export class FormularioRespuestasService {
         firmaUrl: saved.firmaUrl ?? null,
         respondidoEn: saved.respondidoEn.toISOString(),
       },
+      manager,
     );
 
-    return this.findOne(saved.id, user);
+      return saved;
+    });
   }
 
   async remove(id: string, user: AuthenticatedUser): Promise<void> {
-    const actual = await this.findOne(id, user);
-
-    await this.respuestasRepository.delete({ id: actual.id });
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(FormularioRespuesta);
+      const actual = await repository.findOne({
+        where: { id, empresaId: user.empresaId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!actual)
+        throw new NotFoundException(`Formulario respuesta ${id} no encontrada`);
+      await this.assertMutableWorkshopResponse(id, user.empresaId, manager);
+      await repository.delete({ id: actual.id, empresaId: user.empresaId });
 
     await this.registrarBitacora(
       user,
@@ -216,16 +304,44 @@ export class FormularioRespuestasService {
         entidadRelacionada: actual.entidadRelacionada,
       },
       null,
+      manager,
     );
+    });
+  }
+
+  private async assertMutableWorkshopResponse(
+    responseId: string,
+    empresaId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository =
+      manager?.getRepository(FormularioReparacion) ??
+      this.formulariosReparacionRepository;
+    const completed = await repository.findOne({
+      where: {
+        empresaId,
+        formularioRespuestaId: responseId,
+        estado: 'completado',
+      },
+    });
+    if (completed) {
+      throw new BadRequestException(
+        'La respuesta de un formulario de taller completado es inmutable',
+      );
+    }
   }
 
   private async guardarDetalles(
     formularioRespuestaId: string,
     empresaId: string,
     detalles: FormularioRespuestaDetalleDto[],
+    manager?: EntityManager,
   ): Promise<void> {
+    const repository =
+      manager?.getRepository(FormularioRespuestaDetalle) ??
+      this.detallesRepository;
     const detallesEntidades = detalles.map((item) =>
-      this.detallesRepository.create({
+      repository.create({
         empresaId,
         formularioRespuestaId,
         campoClave: item.campoClave,
@@ -240,14 +356,17 @@ export class FormularioRespuestasService {
       }),
     );
 
-    await this.detallesRepository.save(detallesEntidades);
+    await repository.save(detallesEntidades);
   }
 
   private async vincularEvidencias(
     respuesta: FormularioRespuesta,
     evidenciaIds: string[],
+    manager?: EntityManager,
   ): Promise<void> {
-    const evidencias = await this.evidenciasRepository.find({
+    const repository =
+      manager?.getRepository(Evidencia) ?? this.evidenciasRepository;
+    const evidencias = await repository.find({
       where: {
         id: In(evidenciaIds),
       },
@@ -265,7 +384,7 @@ export class FormularioRespuestasService {
 
       evidencia.entidadRelacionada = 'formulario_respuestas';
       evidencia.entidadRelacionadaId = respuesta.id;
-      await this.evidenciasRepository.save(evidencia);
+      await repository.save(evidencia);
     }
   }
 
@@ -297,12 +416,17 @@ export class FormularioRespuestasService {
     formularioVersionId: string,
     detalles: FormularioRespuestaDetalleDto[],
     empresaId: string,
+    manager?: EntityManager,
   ): Promise<void> {
+    const camposRepository =
+      manager?.getRepository(FormularioCampo) ?? this.camposRepository;
+    const reglasRepository =
+      manager?.getRepository(FormularioRegla) ?? this.reglasRepository;
     const [campos, reglas] = await Promise.all([
-      this.camposRepository.find({
+      camposRepository.find({
         where: { formularioVersionId, empresaId },
       }),
-      this.reglasRepository.find({
+      reglasRepository.find({
         where: { formularioVersionId, empresaId },
       }),
     ]);
@@ -450,7 +574,9 @@ export class FormularioRespuestasService {
   }
 
   private describirOperador(operador: string, valorEsperado?: string): string {
-    const valor = valorEsperado ? `"${valorEsperado}"` : 'la condición configurada';
+    const valor = valorEsperado
+      ? `"${valorEsperado}"`
+      : 'la condición configurada';
     const descripcion: Record<string, string> = {
       equals: `es igual a ${valor}`,
       not_equals: `es diferente de ${valor}`,
@@ -474,8 +600,11 @@ export class FormularioRespuestasService {
   private async validarRespondidoPor(
     respondidoPor: string,
     empresaId: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    const usuario = await this.usuariosRepository.findOne({
+    const repository =
+      manager?.getRepository(Usuario) ?? this.usuariosRepository;
+    const usuario = await repository.findOne({
       where: {
         id: respondidoPor,
         empresaId,
@@ -497,8 +626,12 @@ export class FormularioRespuestasService {
     entidadId: string,
     valoresAnteriores: Record<string, unknown> | null,
     valoresNuevos: Record<string, unknown> | null,
+    manager?: EntityManager,
   ): Promise<void> {
-    const registro = this.bitacoraRepository.create({
+    const repository =
+      manager?.getRepository(BitacoraAuditoriaSistema) ??
+      this.bitacoraRepository;
+    const registro = repository.create({
       empresaId: user.empresaId,
       usuarioActorId: user.userId,
       accion,
@@ -509,6 +642,6 @@ export class FormularioRespuestasService {
       resultado: 'exito',
     });
 
-    await this.bitacoraRepository.save(registro);
+    await repository.save(registro);
   }
 }

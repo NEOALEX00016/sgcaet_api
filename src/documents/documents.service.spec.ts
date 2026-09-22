@@ -8,6 +8,8 @@ import { DocumentEntity } from './entities/document.entity';
 import { DOCUMENT_STORAGE } from './interfaces/document-storage.interface';
 import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities/bitacora-auditoria-sistema.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { ReparacionActivo } from '../reparaciones-activo/entities/reparaciones-activo.entity';
+import { PermissionsEvaluatorService } from '../auth/permissions-evaluator.service';
 
 describe('DocumentsService', () => {
   let service: DocumentsService;
@@ -22,6 +24,8 @@ describe('DocumentsService', () => {
   };
   const bitacoraRepositoryMock = { create: jest.fn(), save: jest.fn() };
   const usuariosRepositoryMock = { findOne: jest.fn() };
+  const reparacionesRepositoryMock = { findOne: jest.fn() };
+  const permissionsMock = { requireAny: jest.fn() };
   const storageMock = {
     save: jest.fn(),
     read: jest.fn(),
@@ -34,12 +38,29 @@ describe('DocumentsService', () => {
       work({
         getRepository: (entity) => {
           if (entity === DocumentEntity) return documentsRepositoryMock;
-          if (entity === BitacoraAuditoriaSistema) return bitacoraRepositoryMock;
+          if (entity === BitacoraAuditoriaSistema)
+            return bitacoraRepositoryMock;
           throw new Error('Repository mock not configured');
         },
       }),
     ),
   };
+
+  function queryBuilderMock() {
+    const qb = {
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      orderBy: jest.fn(),
+      skip: jest.fn(),
+      take: jest.fn(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    Object.values(qb).forEach((method) => {
+      if (jest.isMockFunction(method) && method !== qb.getManyAndCount)
+        method.mockReturnValue(qb);
+    });
+    return qb;
+  }
 
   const user = {
     userId: '22222222-2222-2222-2222-222222222222',
@@ -63,9 +84,14 @@ describe('DocumentsService', () => {
           provide: getRepositoryToken(Usuario),
           useValue: usuariosRepositoryMock,
         },
+        {
+          provide: getRepositoryToken(ReparacionActivo),
+          useValue: reparacionesRepositoryMock,
+        },
         { provide: DataSource, useValue: dataSourceMock },
         { provide: DOCUMENT_STORAGE, useValue: storageMock },
         { provide: ConfigService, useValue: configServiceMock },
+        { provide: PermissionsEvaluatorService, useValue: permissionsMock },
       ],
     }).compile();
 
@@ -82,6 +108,7 @@ describe('DocumentsService', () => {
       id: user.userId,
       empresaId: user.empresaId,
     });
+    permissionsMock.requireAny.mockResolvedValue(undefined);
   });
 
   it('sube PDF valido', async () => {
@@ -119,6 +146,28 @@ describe('DocumentsService', () => {
     expect(storageMock.save).toHaveBeenCalled();
   });
 
+  it('filtra metadata por entidad relacionada e id en el servidor', async () => {
+    const qb = queryBuilderMock();
+    documentsRepositoryMock.createQueryBuilder.mockReturnValue(qb);
+
+    await service.findAll(
+      {
+        entidadRelacionada: 'reparaciones_activo',
+        entidadRelacionadaId: '33333333-3333-4333-8333-333333333333',
+      },
+      user,
+    );
+
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'document.entidad_relacionada = :entidadRelacionada',
+      { entidadRelacionada: 'reparaciones_activo' },
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'document.entidad_relacionada_id = :entidadRelacionadaId',
+      { entidadRelacionadaId: '33333333-3333-4333-8333-333333333333' },
+    );
+  });
+
   it('rechaza MIME no permitido', async () => {
     const file = {
       originalname: 'malware.exe',
@@ -147,6 +196,77 @@ describe('DocumentsService', () => {
 
     await expect(service.create({}, file, user)).rejects.toThrow('db fail');
     expect(storageMock.remove).toHaveBeenCalledWith('2026/09/uuid.pdf');
+  });
+
+  it('rechaza relacion de reparacion perteneciente a otro tenant antes de guardar archivo', async () => {
+    reparacionesRepositoryMock.findOne.mockResolvedValue(null);
+    const file = {
+      originalname: 'diagnostico.pdf',
+      mimetype: 'application/pdf',
+      size: 1000,
+      buffer: Buffer.from('ok'),
+    };
+
+    await expect(
+      service.create(
+        {
+          entidadRelacionada: 'reparaciones_activo',
+          entidadRelacionadaId: '33333333-3333-4333-8333-333333333333',
+        },
+        file,
+        user,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(reparacionesRepositoryMock.findOne).toHaveBeenCalledWith({
+      where: {
+        id: '33333333-3333-4333-8333-333333333333',
+        empresaId: user.empresaId,
+      },
+    });
+    expect(storageMock.save).not.toHaveBeenCalled();
+  });
+
+  it('bloquea crear documentos en una orden terminal', async () => {
+    reparacionesRepositoryMock.findOne.mockResolvedValue({ estado: 'cerrada' });
+    await expect(
+      service.create(
+        {
+          entidadRelacionada: 'reparaciones_activo',
+          entidadRelacionadaId: '33333333-3333-4333-8333-333333333333',
+        },
+        {
+          originalname: 'diagnostico.pdf',
+          mimetype: 'application/pdf',
+          size: 100,
+          buffer: Buffer.from('ok'),
+        },
+        user,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storageMock.save).not.toHaveBeenCalled();
+  });
+
+  it('exige permiso especializado para documentos de taller', async () => {
+    permissionsMock.requireAny.mockRejectedValue(
+      new BadRequestException('permiso insuficiente'),
+    );
+    await expect(
+      service.create(
+        {
+          entidadRelacionada: 'reparaciones_activo',
+          entidadRelacionadaId: '33333333-3333-4333-8333-333333333333',
+        },
+        {
+          originalname: 'diagnostico.pdf',
+          mimetype: 'application/pdf',
+          size: 100,
+          buffer: Buffer.from('ok'),
+        },
+        user,
+      ),
+    ).rejects.toThrow('permiso insuficiente');
+    expect(reparacionesRepositoryMock.findOne).not.toHaveBeenCalled();
+    expect(storageMock.save).not.toHaveBeenCalled();
   });
 
   it('restaura metadata si falla borrado fisico en remove', async () => {
@@ -191,6 +311,26 @@ describe('DocumentsService', () => {
       NotFoundException,
     );
   });
+
+  it.each(['cerrada', 'cancelada'])(
+    'bloquea eliminar documentos de una orden %s',
+    async (estado) => {
+      documentsRepositoryMock.findOne.mockResolvedValue({
+        id: 'doc-1',
+        empresaId: user.empresaId,
+        entidadRelacionada: 'reparaciones_activo',
+        entidadRelacionadaId: '33333333-3333-4333-8333-333333333333',
+        storagePath: '2026/09/doc.pdf',
+      });
+      reparacionesRepositoryMock.findOne.mockResolvedValue({ estado });
+
+      await expect(service.remove('doc-1', user)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(storageMock.exists).not.toHaveBeenCalled();
+      expect(documentsRepositoryMock.delete).not.toHaveBeenCalled();
+    },
+  );
 
   it('view rechaza mime no inline', async () => {
     documentsRepositoryMock.findOne.mockResolvedValue({

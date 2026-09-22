@@ -10,6 +10,8 @@ import { FormularioRegla } from '../formulario-reglas/entities/formulario-regla.
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Evidencia } from '../evidencias/entities/evidencia.entity';
 import { BitacoraAuditoriaSistema } from '../bitacora-auditoria-sistema/entities/bitacora-auditoria-sistema.entity';
+import { DataSource } from 'typeorm';
+import { FormularioReparacion } from '../formularios-reparacion/entities/formularios-reparacion.entity';
 
 describe('FormularioRespuestasService', () => {
   let service: FormularioRespuestasService;
@@ -32,6 +34,8 @@ describe('FormularioRespuestasService', () => {
   const usuariosRepositoryMock = { findOne: jest.fn() };
   const evidenciasRepositoryMock = { find: jest.fn(), save: jest.fn() };
   const bitacoraRepositoryMock = { create: jest.fn(), save: jest.fn() };
+  const formulariosReparacionRepositoryMock = { findOne: jest.fn() };
+  const dataSourceMock = { transaction: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -69,6 +73,11 @@ describe('FormularioRespuestasService', () => {
           provide: getRepositoryToken(BitacoraAuditoriaSistema),
           useValue: bitacoraRepositoryMock,
         },
+        {
+          provide: getRepositoryToken(FormularioReparacion),
+          useValue: formulariosReparacionRepositoryMock,
+        },
+        { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();
 
@@ -76,6 +85,7 @@ describe('FormularioRespuestasService', () => {
       FormularioRespuestasService,
     );
     jest.clearAllMocks();
+    formulariosReparacionRepositoryMock.findOne.mockResolvedValue(null);
   });
 
   it('debe rechazar version no publicada', async () => {
@@ -159,6 +169,78 @@ describe('FormularioRespuestasService', () => {
         },
       }),
     );
+  });
+
+  it('bloquea actualizar una respuesta usada por un formulario de taller completado', async () => {
+    const actual = {
+      id: 'response-1',
+      empresaId: '11111111-1111-1111-1111-111111111111',
+      formularioVersionId: '33333333-3333-3333-3333-333333333333',
+      respondidoEn: new Date(),
+    };
+    const transactionRepository = {
+      ...respuestasRepositoryMock,
+      findOne: jest.fn().mockResolvedValue(actual),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) =>
+        entity === FormularioRespuesta
+          ? transactionRepository
+          : entity === FormularioReparacion
+            ? formulariosReparacionRepositoryMock
+            : detallesRepositoryMock,
+      ),
+    };
+    dataSourceMock.transaction.mockImplementation((callback) =>
+      callback(manager),
+    );
+    formulariosReparacionRepositoryMock.findOne.mockResolvedValue({
+      id: 'instance-1',
+      estado: 'completado',
+    });
+
+    await expect(
+      service.update('response-1', { detalles: [] }, {
+        userId: '22222222-2222-2222-2222-222222222222',
+        empresaId: actual.empresaId,
+        correo: 'admin@empresa.com',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(transactionRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('bloquea eliminar una respuesta usada por un formulario de taller completado', async () => {
+    const actual = {
+      id: 'response-1',
+      empresaId: '11111111-1111-1111-1111-111111111111',
+    };
+    const transactionRepository = {
+      ...respuestasRepositoryMock,
+      findOne: jest.fn().mockResolvedValue(actual),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) =>
+        entity === FormularioRespuesta
+          ? transactionRepository
+          : formulariosReparacionRepositoryMock,
+      ),
+    };
+    dataSourceMock.transaction.mockImplementation((callback) =>
+      callback(manager),
+    );
+    formulariosReparacionRepositoryMock.findOne.mockResolvedValue({
+      id: 'instance-1',
+      estado: 'completado',
+    });
+
+    await expect(
+      service.remove('response-1', {
+        userId: '22222222-2222-2222-2222-222222222222',
+        empresaId: actual.empresaId,
+        correo: 'admin@empresa.com',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(transactionRepository.delete).not.toHaveBeenCalled();
   });
 
   it('rechaza create cuando falta campo obligatorio', async () => {

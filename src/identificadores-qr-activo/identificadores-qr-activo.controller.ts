@@ -13,16 +13,19 @@ import { CreateIdentificadoresQrActivoDto } from './dto/create-identificadores-q
 import { UpdateIdentificadoresQrActivoDto } from './dto/update-identificadores-qr-activo.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
-import { RequirePermission } from '../auth/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../auth/decorators/require-permission.decorator';
 
 @Controller('identificadores-qr-activo')
-@RequirePermission('inventario.catalogos.gestionar')
 export class IdentificadoresQrActivoController {
   constructor(
     private readonly identificadoresQrActivoService: IdentificadoresQrActivoService,
   ) {}
 
   @Post()
+  @RequirePermission('inventario.catalogos.gestionar')
   create(
     @Body() createIdentificadoresQrActivoDto: CreateIdentificadoresQrActivoDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -34,6 +37,7 @@ export class IdentificadoresQrActivoController {
   }
 
   @Get()
+  @RequirePermission('inventario.catalogos.gestionar')
   findAll(
     @Query('activoId') activoId: string | undefined,
     @CurrentUser() user: AuthenticatedUser,
@@ -42,6 +46,7 @@ export class IdentificadoresQrActivoController {
   }
 
   @Get('codigo/:codigoQr')
+  @RequireAnyPermission('reparaciones.ver', 'inventario.catalogos.gestionar')
   findByCodigoQr(
     @Param('codigoQr') codigoQr: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -50,11 +55,13 @@ export class IdentificadoresQrActivoController {
   }
 
   @Get(':id')
+  @RequirePermission('inventario.catalogos.gestionar')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.identificadoresQrActivoService.findOne(id, user);
   }
 
   @Patch(':id')
+  @RequirePermission('inventario.catalogos.gestionar')
   update(
     @Param('id') id: string,
     @Body() updateIdentificadoresQrActivoDto: UpdateIdentificadoresQrActivoDto,
@@ -68,6 +75,7 @@ export class IdentificadoresQrActivoController {
   }
 
   @Delete(':id')
+  @RequirePermission('inventario.catalogos.gestionar')
   async remove(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,

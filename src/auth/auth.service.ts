@@ -35,16 +35,22 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async login(loginDto: LoginDto, requestHost?: string): Promise<{
+  async login(
+    loginDto: LoginDto,
+    requestHost?: string,
+  ): Promise<{
     accessToken: string;
     user: { id: string; empresaId: string; correo: string };
   }> {
     const correo = loginDto.correo.trim().toLowerCase();
     const dominio = correo.split('@')[1];
     const host = requestHost?.split(':')[0]?.trim().toLowerCase();
-    const hostname = host && host !== 'localhost' && host !== '127.0.0.1' ? host : dominio;
+    const hostname =
+      host && host !== 'localhost' && host !== '127.0.0.1' ? host : dominio;
     const dominioConfigurado = hostname
-      ? await this.dominiosRepository.findOne({ where: { hostname, estadoVerificacion: 'verificado' } })
+      ? await this.dominiosRepository.findOne({
+          where: { hostname, estadoVerificacion: 'verificado' },
+        })
       : null;
     const usuario = await this.usuariosRepository
       .createQueryBuilder('usuario')
@@ -132,8 +138,12 @@ export class AuthService {
     const provider = dto.proveedor as OidcProvider;
     const correo = dto.correo.trim().toLowerCase();
     const targetEmpresaId =
-      dto.empresaId?.trim() ?? (await this.resolveEmpresaIdFromEmailDomain(correo));
-    await this.oidcConfigService.ensureProviderEnabled(provider, targetEmpresaId);
+      dto.empresaId?.trim() ??
+      (await this.resolveEmpresaIdFromEmailDomain(correo));
+    await this.oidcConfigService.ensureProviderEnabled(
+      provider,
+      targetEmpresaId,
+    );
 
     const usuario = await this.usuariosRepository.findOne({
       where: {
@@ -217,7 +227,10 @@ export class AuthService {
         'microsoft',
         empresaId,
       ),
-      google: await this.oidcConfigService.getProviderConfig('google', empresaId),
+      google: await this.oidcConfigService.getProviderConfig(
+        'google',
+        empresaId,
+      ),
     };
   }
 
@@ -236,16 +249,45 @@ export class AuthService {
     });
     if (!grants.length) return [];
 
-    const permissionIds = Array.from(new Set(grants.map((item) => item.permisoId)));
+    const permissionIds = Array.from(
+      new Set(grants.map((item) => item.permisoId)),
+    );
     const permissions = await this.permisosRepository.find({
       where: { id: In(permissionIds) },
       select: { codigo: true },
     });
 
-    return Array.from(new Set(permissions.map((item) => item.codigo))).sort();
+    const codes = new Set(permissions.map((item) => item.codigo));
+    if (codes.has('reparaciones.gestionar')) {
+      codes.add('reparaciones.ver');
+      codes.add('reparaciones.crear');
+      codes.add('reparaciones.diagnosticar');
+      codes.add('reparaciones.editar');
+      codes.add('reparaciones.comunicar');
+      codes.add('reparaciones.estado');
+      codes.add('reparaciones.resolver');
+      codes.add('reparaciones.cancelar');
+      codes.add('reparaciones.costos.gestionar');
+      codes.add('reparaciones.documentos.gestionar');
+      codes.add('reparaciones.reportes.ver');
+      codes.add('repuestos.ver');
+      codes.add('repuestos.catalogo.gestionar');
+      codes.add('repuestos.existencias.gestionar');
+      codes.add('repuestos.movimientos.ver');
+      codes.add('componentes_instalados.ver');
+      codes.add('componentes_instalados.gestionar');
+      codes.add('reparaciones.formularios.ver');
+      codes.add('reparaciones.formularios.gestionar');
+      codes.add('reparaciones.formularios.responder');
+      codes.add('mantenimiento.preventivo.ver');
+      codes.add('mantenimiento.preventivo.gestionar');
+    }
+    return Array.from(codes).sort();
   }
 
-  private async resolveEmpresaIdFromEmailDomain(correo: string): Promise<string> {
+  private async resolveEmpresaIdFromEmailDomain(
+    correo: string,
+  ): Promise<string> {
     const domain = correo.split('@')[1]?.trim().toLowerCase();
     if (!domain) {
       throw new UnauthorizedException('Correo invalido para resolver tenant');

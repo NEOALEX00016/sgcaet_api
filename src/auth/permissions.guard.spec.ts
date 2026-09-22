@@ -6,7 +6,7 @@ describe('PermissionsGuard', () => {
   const reflector = { getAllAndOverride: jest.fn() } as unknown as Reflector;
   const usuarioRolesRepository = { find: jest.fn() };
   const rolPermisosRepository = { find: jest.fn() };
-  const permisosRepository = { findOne: jest.fn() };
+  const permisosRepository = { find: jest.fn() };
   const usuariosRepository = { findOne: jest.fn() };
   const guard = new PermissionsGuard(
     reflector,
@@ -44,7 +44,7 @@ describe('PermissionsGuard', () => {
     rolPermisosRepository.find.mockResolvedValue([
       { permisoId: 'permission-other' },
     ]);
-    permisosRepository.findOne.mockResolvedValue(null);
+    permisosRepository.find.mockResolvedValue([]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
@@ -68,17 +68,25 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'solicitudes.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'solicitudes.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
-    expect(JSON.stringify(findOneArg.where.codigo)).toContain('solicitudes.ver');
+    expect(JSON.stringify(findOneArg.where.codigo)).toContain(
+      'solicitudes.ver',
+    );
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
       'solicitudes.gestionar',
     );
@@ -92,17 +100,25 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'solicitudes.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'solicitudes.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
-    expect(JSON.stringify(findOneArg.where.codigo)).toContain('solicitudes.configurar');
+    expect(JSON.stringify(findOneArg.where.codigo)).toContain(
+      'solicitudes.configurar',
+    );
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
       'solicitudes.gestionar',
     );
@@ -116,14 +132,20 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'personas.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'personas.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
@@ -138,10 +160,18 @@ describe('PermissionsGuard', () => {
     reflector.getAllAndOverride = jest
       .fn()
       .mockReturnValue('fuentes-empleados.crear');
-    usuariosRepository.findOne.mockResolvedValue({ esPropietarioPlataforma: false });
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
+    });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'personas.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'personas.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
@@ -156,14 +186,20 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'personas.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'personas.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
@@ -182,14 +218,20 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'personas.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'personas.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
@@ -208,14 +250,20 @@ describe('PermissionsGuard', () => {
       esPropietarioPlataforma: false,
     });
     usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({ codigo: 'personas.gestionar' });
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        codigo: 'personas.gestionar',
+      },
+    ]);
 
     await expect(
       guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
     ).resolves.toBe(true);
 
-    const findOneArg = permisosRepository.findOne.mock.calls[0][0] as {
+    const findOneArg = permisosRepository.find.mock.calls[0][0] as {
       where: { codigo: unknown };
     };
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
@@ -224,5 +272,150 @@ describe('PermissionsGuard', () => {
     expect(JSON.stringify(findOneArg.where.codigo)).toContain(
       'personas.gestionar',
     );
+  });
+
+  it.each([
+    'reparaciones.ver',
+    'reparaciones.crear',
+    'reparaciones.diagnosticar',
+    'reparaciones.editar',
+    'reparaciones.comunicar',
+    'reparaciones.estado',
+    'reparaciones.resolver',
+    'reparaciones.cancelar',
+    'reparaciones.costos.gestionar',
+    'reparaciones.documentos.gestionar',
+    'reparaciones.reportes.ver',
+    'repuestos.ver',
+    'repuestos.catalogo.gestionar',
+    'repuestos.existencias.gestionar',
+    'repuestos.movimientos.ver',
+    'componentes_instalados.ver',
+    'componentes_instalados.gestionar',
+    'reparaciones.formularios.ver',
+    'reparaciones.formularios.gestionar',
+    'reparaciones.formularios.responder',
+    'mantenimiento.preventivo.ver',
+    'mantenimiento.preventivo.gestionar',
+  ])(
+    'accepts reparaciones.gestionar as temporary alias for %s',
+    async (required) => {
+      reflector.getAllAndOverride = jest.fn().mockReturnValue(required);
+      usuariosRepository.findOne.mockResolvedValue({
+        esPropietarioPlataforma: false,
+      });
+      usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+      rolPermisosRepository.find.mockResolvedValue([
+        { permisoId: 'permission-1' },
+      ]);
+      permisosRepository.find.mockResolvedValue([
+        {
+          codigo: 'reparaciones.gestionar',
+        },
+      ]);
+
+      await expect(
+        guard.canActivate(
+          context({ userId: 'user-1', empresaId: 'company-1' }),
+        ),
+      ).resolves.toBe(true);
+      const findOneArg = permisosRepository.find.mock.calls[0][0] as {
+        where: { codigo: unknown };
+      };
+      expect(JSON.stringify(findOneArg.where.codigo)).toContain(required);
+      expect(JSON.stringify(findOneArg.where.codigo)).toContain(
+        'reparaciones.gestionar',
+      );
+    },
+  );
+
+  it('requires every permission declared by RequirePermissions', async () => {
+    reflector.getAllAndOverride = jest
+      .fn()
+      .mockReturnValue([
+        'repuestos.existencias.gestionar',
+        'reparaciones.editar',
+      ]);
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
+    });
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-stock' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      { codigo: 'repuestos.existencias.gestionar' },
+    ]);
+
+    await expect(
+      guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
+    ).rejects.toThrow('Permiso requerido: reparaciones.editar');
+  });
+
+  it('allows all-of when every granular permission is granted', async () => {
+    reflector.getAllAndOverride = jest
+      .fn()
+      .mockReturnValue([
+        'repuestos.existencias.gestionar',
+        'reparaciones.editar',
+      ]);
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
+    });
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-stock' },
+      { permisoId: 'permission-order' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      { codigo: 'repuestos.existencias.gestionar' },
+      { codigo: 'reparaciones.editar' },
+    ]);
+
+    await expect(
+      guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
+    ).resolves.toBe(true);
+  });
+
+  it('allows any-of when one declared permission is granted', async () => {
+    reflector.getAllAndOverride = jest.fn((key: string) =>
+      key === 'requiredAnyPermission'
+        ? ['reparaciones.ver', 'inventario.catalogos.gestionar']
+        : undefined,
+    );
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
+    });
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-repair-read' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      { codigo: 'reparaciones.ver' },
+    ]);
+
+    await expect(
+      guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
+    ).resolves.toBe(true);
+  });
+
+  it('rejects any-of when none of the declared permissions is granted', async () => {
+    reflector.getAllAndOverride = jest.fn((key: string) =>
+      key === 'requiredAnyPermission'
+        ? ['reparaciones.ver', 'inventario.catalogos.gestionar']
+        : undefined,
+    );
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
+    });
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-other' },
+    ]);
+    permisosRepository.find.mockResolvedValue([]);
+
+    await expect(
+      guard.canActivate(context({ userId: 'user-1', empresaId: 'company-1' })),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

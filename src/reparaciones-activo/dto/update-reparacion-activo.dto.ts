@@ -6,6 +6,7 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
 } from 'class-validator';
 
 export class UpdateReparacionActivoDto {
@@ -21,6 +22,7 @@ export class UpdateReparacionActivoDto {
 
   @IsOptional()
   @IsNumberString()
+  @Matches(/^\d+(?:\.\d+)?$/, { message: 'costo no puede ser negativo' })
   costo?: string;
 
   @IsOptional()
@@ -34,7 +36,7 @@ export class UpdateReparacionActivoDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['abierta', 'en_proceso', 'esperando_repuestos', 'cancelada'])
+  @IsIn(['abierta', 'en_proceso', 'esperando_repuestos'])
   estado?: string;
 
   @IsOptional()

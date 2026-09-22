@@ -20,7 +20,9 @@ describe('AuthService OIDC login', () => {
     ensureProviderEnabled: jest.fn(),
     getProviderConfig: jest.fn(),
   } as any;
-  const jwtService = { signAsync: jest.fn().mockResolvedValue('jwt-token') } as any;
+  const jwtService = {
+    signAsync: jest.fn().mockResolvedValue('jwt-token'),
+  } as any;
 
   const service = new AuthService(
     usuariosRepository,
@@ -87,7 +89,9 @@ describe('AuthService OIDC login', () => {
 
   it('resuelve tenant por dominio de correo cuando no se envia empresaId', async () => {
     oidcConfigService.ensureProviderEnabled.mockReturnValue({ enabled: true });
-    dominiosRepository.findOne.mockResolvedValue({ empresaId: 'empresa-dominio' });
+    dominiosRepository.findOne.mockResolvedValue({
+      empresaId: 'empresa-dominio',
+    });
     usuariosRepository.findOne.mockResolvedValue({
       id: 'user-1',
       empresaId: 'empresa-dominio',
@@ -104,5 +108,43 @@ describe('AuthService OIDC login', () => {
     });
 
     expect(dominiosRepository.findOne).toHaveBeenCalled();
+  });
+
+  it('expone aliases temporales de formularios de taller para roles existentes', async () => {
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      { codigo: 'reparaciones.gestionar' },
+    ]);
+
+    const permissions = await (service as any).getPermissionCodes(
+      'user-1',
+      'empresa-1',
+    );
+
+    expect(permissions).toEqual(
+      expect.arrayContaining([
+        'reparaciones.gestionar',
+        'reparaciones.ver',
+        'reparaciones.crear',
+        'reparaciones.diagnosticar',
+        'reparaciones.editar',
+        'reparaciones.comunicar',
+        'reparaciones.estado',
+        'reparaciones.resolver',
+        'reparaciones.cancelar',
+        'reparaciones.costos.gestionar',
+        'reparaciones.documentos.gestionar',
+        'reparaciones.reportes.ver',
+        'repuestos.existencias.gestionar',
+        'reparaciones.formularios.ver',
+        'reparaciones.formularios.gestionar',
+        'reparaciones.formularios.responder',
+        'mantenimiento.preventivo.ver',
+        'mantenimiento.preventivo.gestionar',
+      ]),
+    );
   });
 });

@@ -78,6 +78,8 @@ export class DocumentsController {
   @ApiQuery({ name: 'dateFrom', required: false })
   @ApiQuery({ name: 'dateTo', required: false })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'entidadRelacionada', required: false })
+  @ApiQuery({ name: 'entidadRelacionadaId', required: false })
   findAll(
     @Query() query: DocumentQueryDto,
     @CurrentUser() user: AuthenticatedUser,

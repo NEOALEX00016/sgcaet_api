@@ -351,6 +351,63 @@ export class ConfiguracionOperativaTenantService {
     };
   }
 
+  async sendCorreo(
+    empresaId: string,
+    message: { to: string; subject: string; text: string },
+  ): Promise<void> {
+    const delivery = await this.getCorreoDeliveryConfig(empresaId);
+    if (delivery.mode === 'smtp') {
+      const transporter = nodemailer.createTransport({
+        host: delivery.host,
+        port: delivery.port,
+        secure: !delivery.tls || delivery.port === 465,
+        auth: { user: delivery.user, pass: delivery.pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 10000,
+      });
+      await transporter.sendMail({
+        from: delivery.from,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+      });
+      return;
+    }
+
+    const allowedHost = this.secureHttpClient.extractHostname(delivery.endpoint);
+    if (!allowedHost) {
+      throw new BadRequestException('Endpoint de correo API invalido para envio.');
+    }
+    const body =
+      delivery.provider === 'sendgrid_api'
+        ? {
+            personalizations: [{ to: [{ email: message.to }] }],
+            from: { email: delivery.from },
+            subject: message.subject,
+            content: [{ type: 'text/plain', value: message.text }],
+          }
+        : {
+            from: delivery.from,
+            to: delivery.provider === 'resend' ? [message.to] : message.to,
+            subject: message.subject,
+            text: message.text,
+          };
+    const response = await this.secureHttpClient.request({
+      url: delivery.endpoint,
+      method: 'POST',
+      headers: this.buildCorreoApiHeaders(delivery),
+      body: JSON.stringify(body),
+      timeoutMs: 10000,
+      allowedHosts: [allowedHost],
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Proveedor de correo ${delivery.provider} devolvio HTTP ${response.status}`,
+      );
+    }
+  }
+
   async probarAlmacenamiento(empresaId: string, actorId: string) {
     const config = await this.repository
       .createQueryBuilder('cfg')

@@ -4,6 +4,18 @@ import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { OutboxEventoIntegracion } from './entities/outbox-evento-integracion.entity';
 import { IntegracionesMesaAyudaService } from '../integraciones-mesa-ayuda/integraciones-mesa-ayuda.service';
 import { Solicitud } from '../solicitudes/entities/solicitud.entity';
+import { ReparacionActivo } from '../reparaciones-activo/entities/reparaciones-activo.entity';
+import { Asignacion } from '../asignaciones/entities/asignacione.entity';
+import { Persona } from '../personas/entities/persona.entity';
+import { Activo } from '../activos/entities/activo.entity';
+import { ConfiguracionOperativaTenantService } from '../configuracion-operativa-tenant/configuracion-operativa-tenant.service';
+
+const WORKSHOP_EVENT_TYPES = new Set([
+  'orden_recibida',
+  'diagnostico_comunicado',
+  'esperando_repuestos',
+  'orden_resuelta',
+]);
 
 @Injectable()
 export class OutboxEventosIntegracionWorker implements OnModuleInit, OnModuleDestroy {
@@ -26,7 +38,16 @@ export class OutboxEventosIntegracionWorker implements OnModuleInit, OnModuleDes
     private readonly outboxRepository: Repository<OutboxEventoIntegracion>,
     @InjectRepository(Solicitud)
     private readonly solicitudesRepository: Repository<Solicitud>,
+    @InjectRepository(ReparacionActivo)
+    private readonly reparacionesRepository: Repository<ReparacionActivo>,
+    @InjectRepository(Asignacion)
+    private readonly asignacionesRepository: Repository<Asignacion>,
+    @InjectRepository(Persona)
+    private readonly personasRepository: Repository<Persona>,
+    @InjectRepository(Activo)
+    private readonly activosRepository: Repository<Activo>,
     private readonly integracionesService: IntegracionesMesaAyudaService,
+    private readonly configuracionTenantService: ConfiguracionOperativaTenantService,
   ) {}
 
   onModuleInit() {
@@ -112,24 +133,14 @@ export class OutboxEventosIntegracionWorker implements OnModuleInit, OnModuleDes
   }
 
   private async processClaimedEvent(event: OutboxEventoIntegracion): Promise<void> {
-    const solicitudId = String(event.payloadJson?.solicitudId ?? event.aggregateId);
     try {
-      if (event.eventType !== 'solicitud_creada') {
+      if (event.eventType === 'solicitud_creada') {
+        await this.dispatchSolicitud(event);
+      } else if (WORKSHOP_EVENT_TYPES.has(event.eventType)) {
+        await this.dispatchWorkshopEvent(event);
+      } else {
         throw new Error(`Tipo de evento no soportado: ${event.eventType}`);
       }
-
-      const solicitud = await this.solicitudesRepository.findOne({
-        where: {
-          id: solicitudId,
-          empresaId: event.empresaId,
-        },
-      });
-
-      if (!solicitud) {
-        throw new Error(`Solicitud no encontrada para outbox: ${solicitudId}`);
-      }
-
-      await this.integracionesService.dispatchForSolicitud(solicitud);
 
       await this.outboxRepository.update(
         { id: event.id },
@@ -169,6 +180,95 @@ export class OutboxEventosIntegracionWorker implements OnModuleInit, OnModuleDes
         `Outbox ${event.id} fallo en intento ${nextAttempts}: ${message}`,
       );
     }
+  }
+
+  private async dispatchSolicitud(event: OutboxEventoIntegracion): Promise<void> {
+    const solicitudId = String(event.payloadJson?.solicitudId ?? event.aggregateId);
+    const solicitud = await this.solicitudesRepository.findOne({
+      where: { id: solicitudId, empresaId: event.empresaId },
+    });
+    if (!solicitud) {
+      throw new Error(`Solicitud no encontrada para outbox: ${solicitudId}`);
+    }
+    await this.integracionesService.dispatchForSolicitud(solicitud);
+  }
+
+  private async dispatchWorkshopEvent(
+    event: OutboxEventoIntegracion,
+  ): Promise<void> {
+    const orderId = String(event.payloadJson?.reparacionId ?? event.aggregateId);
+    const order = await this.reparacionesRepository.findOne({
+      where: { id: orderId, empresaId: event.empresaId },
+    });
+    if (!order) {
+      throw new Error(`Orden de taller no encontrada para outbox: ${orderId}`);
+    }
+    if (!order.asignacionId) {
+      throw new Error(
+        `Orden de taller ${orderId} no tiene asignacion para resolver destinatario`,
+      );
+    }
+    const assignment = await this.asignacionesRepository.findOne({
+      where: { id: order.asignacionId, empresaId: event.empresaId },
+    });
+    if (!assignment?.personaId) {
+      throw new Error(
+        `Asignacion ${order.asignacionId} de la orden ${orderId} no tiene persona destinataria`,
+      );
+    }
+    const person = await this.personasRepository.findOne({
+      where: { id: assignment.personaId, empresaId: event.empresaId },
+    });
+    if (!person?.correo?.trim()) {
+      throw new Error(
+        `Persona ${assignment.personaId} de la orden ${orderId} no tiene correo configurado`,
+      );
+    }
+    const asset = await this.activosRepository.findOne({
+      where: { id: order.activoId, empresaId: event.empresaId },
+    });
+    if (!asset) {
+      throw new Error(`Activo ${order.activoId} de la orden ${orderId} no encontrado`);
+    }
+
+    const details = this.workshopMessage(event, order, asset);
+    await this.configuracionTenantService.sendCorreo(event.empresaId, {
+      to: person.correo.trim(),
+      ...details,
+    });
+  }
+
+  private workshopMessage(
+    event: OutboxEventoIntegracion,
+    order: ReparacionActivo,
+    asset: Activo,
+  ): { subject: string; text: string } {
+    const labels: Record<string, string> = {
+      orden_recibida: 'Orden recibida',
+      diagnostico_comunicado: 'Diagnostico comunicado',
+      esperando_repuestos: 'Orden esperando repuestos',
+      orden_resuelta: 'Orden resuelta',
+    };
+    const payload = event.payloadJson ?? {};
+    const lines = [
+      labels[event.eventType],
+      `Orden: ${order.id}`,
+      `Activo: ${asset.codigoActivo} - ${asset.nombre}`,
+      `Marca/modelo: ${[asset.marca, asset.modelo].filter(Boolean).join(' ') || 'No registrado'}`,
+      `Serial: ${asset.serial || 'No registrado'}`,
+      `Estado: ${String(payload.estado ?? order.estado)}`,
+    ];
+    if (event.eventType === 'diagnostico_comunicado') {
+      lines.push(`Diagnostico: ${String(payload.diagnostico ?? order.diagnostico)}`);
+    }
+    if (event.eventType === 'orden_resuelta') {
+      lines.push(`Resultado: ${String(payload.resultado ?? order.resultado ?? '')}`);
+      lines.push(`Resolucion: ${String(payload.resolucion ?? order.resolucion ?? '')}`);
+    }
+    return {
+      subject: `[SGCAET] ${labels[event.eventType]} - orden ${order.id}`,
+      text: lines.join('\n'),
+    };
   }
 
   private calculateBackoffMs(attemptNumber: number): number {

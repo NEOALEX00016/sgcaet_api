@@ -80,7 +80,7 @@ describe('RBAC HTTP contract', () => {
   };
   const usuarioRolesRepository = { find: jest.fn() };
   const rolPermisosRepository = { find: jest.fn() };
-  const permisosRepository = { findOne: jest.fn() };
+  const permisosRepository = { find: jest.fn() };
   const usuariosRepository = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -157,7 +157,7 @@ describe('RBAC HTTP contract', () => {
     rolPermisosRepository.find.mockResolvedValue([
       { permisoId: 'permission-other' },
     ]);
-    permisosRepository.findOne.mockResolvedValue(null);
+    permisosRepository.find.mockResolvedValue([]);
 
     await request(app.getHttpServer())
       .get('/rbac-test/protected')
@@ -179,7 +179,10 @@ describe('RBAC HTTP contract', () => {
         endpoint: '/rbac-test/formularios',
         requiredPermission: 'formularios.gestionar',
       },
-      { endpoint: '/rbac-test/auditorias', requiredPermission: 'auditorias.ver' },
+      {
+        endpoint: '/rbac-test/auditorias',
+        requiredPermission: 'auditorias.ver',
+      },
       {
         endpoint: '/rbac-test/solicitudes',
         requiredPermission: 'solicitudes.gestionar',
@@ -212,19 +215,25 @@ describe('RBAC HTTP contract', () => {
       rolPermisosRepository.find.mockResolvedValue([
         { permisoId: 'permission-other' },
       ]);
-      permisosRepository.findOne.mockResolvedValue(null);
+      permisosRepository.find.mockResolvedValue([]);
 
       await request(app.getHttpServer())
         .get(surface.endpoint)
         .set('Authorization', 'Bearer valid-token')
         .expect(403);
 
-      expect(permisosRepository.findOne).toHaveBeenLastCalledWith({
+      expect(permisosRepository.find).toHaveBeenLastCalledWith({
         where: {
           id: expect.anything(),
-          codigo: surface.requiredPermission,
+          codigo: expect.anything(),
         },
       });
+      const query = permisosRepository.find.mock.calls.at(-1)?.[0] as {
+        where: { codigo: unknown };
+      };
+      expect(JSON.stringify(query.where.codigo)).toContain(
+        surface.requiredPermission,
+      );
     }
   });
 
@@ -235,13 +244,19 @@ describe('RBAC HTTP contract', () => {
       correo: 'user@example.com',
     });
     authService.validateUser.mockResolvedValue({ id: 'user-1' });
-    usuariosRepository.findOne.mockResolvedValue({ esPropietarioPlataforma: false });
-    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
-    rolPermisosRepository.find.mockResolvedValue([{ permisoId: 'permission-1' }]);
-    permisosRepository.findOne.mockResolvedValue({
-      id: 'permission-1',
-      codigo: 'seguridad.roles.gestionar',
+    usuariosRepository.findOne.mockResolvedValue({
+      esPropietarioPlataforma: false,
     });
+    usuarioRolesRepository.find.mockResolvedValue([{ rolId: 'role-1' }]);
+    rolPermisosRepository.find.mockResolvedValue([
+      { permisoId: 'permission-1' },
+    ]);
+    permisosRepository.find.mockResolvedValue([
+      {
+        id: 'permission-1',
+        codigo: 'seguridad.roles.gestionar',
+      },
+    ]);
 
     await request(app.getHttpServer())
       .get('/rbac-test/protected')

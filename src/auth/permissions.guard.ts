@@ -6,89 +6,94 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { UsuarioRol } from '../usuario-roles/entities/usuario-role.entity';
 import { RolPermiso } from '../rol-permisos/entities/rol-permiso.entity';
 import { Permiso } from '../permisos/entities/permiso.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
-import { REQUIRED_PERMISSION_KEY } from './decorators/require-permission.decorator';
-
-const PERMISSION_ALIASES: Record<string, string[]> = {
-  'solicitudes.ver': ['solicitudes.gestionar'],
-  'solicitudes.configurar': ['solicitudes.gestionar'],
-  'fuentes-empleados.ver': ['personas.gestionar'],
-  'fuentes-empleados.crear': ['personas.gestionar'],
-  'fuentes-empleados.editar': ['personas.gestionar'],
-  'fuentes-empleados.probar': ['personas.gestionar'],
-  'fuentes-empleados.eliminar': ['personas.gestionar'],
-  'personas.ejecuciones-carga.ver': ['personas.gestionar'],
-  'estructura.nodos.ver': ['personas.gestionar'],
-  'estructura.nodos.crear': ['personas.gestionar'],
-  'estructura.nodos.editar': ['personas.gestionar'],
-  'estructura.nodos.eliminar': ['personas.gestionar'],
-  'inventario.asignaciones.gestionar': ['telecom.gestionar'],
-  'telecom.pools.gestionar': ['telecom.gestionar'],
-  'telecom.planes.gestionar': ['telecom.gestionar'],
-  'telecom.recargas.gestionar': ['telecom.gestionar'],
-  'telecom.asignaciones.gestionar': ['telecom.gestionar'],
-  'reglas-negocio.gestionar': ['telecom.gestionar'],
-};
+import {
+  REQUIRED_ANY_PERMISSION_KEY,
+  REQUIRED_BODY_FIELD_PERMISSIONS_KEY,
+  REQUIRED_PERMISSION_KEY,
+} from './decorators/require-permission.decorator';
+import { PermissionsEvaluatorService } from './permissions-evaluator.service';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    @InjectRepository(UsuarioRol)
-    private readonly usuarioRolesRepository: Repository<UsuarioRol>,
-    @InjectRepository(RolPermiso)
-    private readonly rolPermisosRepository: Repository<RolPermiso>,
-    @InjectRepository(Permiso)
-    private readonly permisosRepository: Repository<Permiso>,
+    @InjectRepository(UsuarioRol) usuarioRolesRepository: Repository<UsuarioRol>,
+    @InjectRepository(RolPermiso) rolPermisosRepository: Repository<RolPermiso>,
+    @InjectRepository(Permiso) permisosRepository: Repository<Permiso>,
     @InjectRepository(Usuario)
     private readonly usuariosRepository: Repository<Usuario>,
-  ) {}
+  ) {
+    this.evaluator = new PermissionsEvaluatorService(
+      usuarioRolesRepository,
+      rolPermisosRepository,
+      permisosRepository,
+    );
+  }
+
+  private readonly evaluator: PermissionsEvaluatorService;
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<string>(
-      REQUIRED_PERMISSION_KEY,
+    const requiredMetadata = this.reflector.getAllAndOverride<
+      string | string[]
+    >(REQUIRED_PERMISSION_KEY, [context.getHandler(), context.getClass()]);
+    const anyMetadata = this.reflector.getAllAndOverride<string[]>(
+      REQUIRED_ANY_PERMISSION_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required) return true;
+    const bodyMetadata = this.reflector.getAllAndOverride<
+      Record<string, string[]>
+    >(REQUIRED_BODY_FIELD_PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const anyRequired = Array.isArray(anyMetadata) ? anyMetadata : [];
+    const bodyPolicies =
+      bodyMetadata &&
+      !Array.isArray(bodyMetadata) &&
+      typeof bodyMetadata === 'object'
+        ? bodyMetadata
+        : undefined;
+    if (!requiredMetadata && !anyRequired.length && !bodyPolicies) return true;
+    const required = requiredMetadata
+      ? Array.isArray(requiredMetadata)
+        ? requiredMetadata
+        : [requiredMetadata]
+      : [];
     const request = context
       .switchToHttp()
-      .getRequest<{ user?: AuthenticatedUser }>();
+      .getRequest<{ user?: AuthenticatedUser; body?: Record<string, unknown> }>();
     const user = request.user;
     if (!user) throw new ForbiddenException('Usuario autenticado requerido');
 
     const actor = await this.usuariosRepository.findOne({
       where: { id: user.userId, empresaId: user.empresaId },
     });
-    if (actor?.esPropietarioPlataforma && required.startsWith('plataforma.'))
+    if (
+      actor?.esPropietarioPlataforma &&
+      required.length > 0 &&
+      required.every((permission) => permission.startsWith('plataforma.'))
+    )
       return true;
 
-    const roleAssignments = await this.usuarioRolesRepository.find({
-      where: { empresaId: user.empresaId, usuarioId: user.userId },
-    });
-    if (!roleAssignments.length)
-      throw new ForbiddenException('Permiso insuficiente');
-    const roleIds = roleAssignments.map((assignment) => assignment.rolId);
-    const grants = await this.rolPermisosRepository.find({
-      where: { empresaId: user.empresaId, rolId: In(roleIds) },
-    });
-    if (!grants.length) throw new ForbiddenException('Permiso insuficiente');
-    const acceptedCodes = [required, ...(PERMISSION_ALIASES[required] ?? [])];
-    const permission = await this.permisosRepository.findOne({
-      where: {
-        id: In(grants.map((grant) => grant.permisoId)) as never,
-        codigo:
-          acceptedCodes.length > 1
-            ? (In(acceptedCodes) as never)
-            : required,
-      },
-    });
-    if (!permission)
-      throw new ForbiddenException(`Permiso requerido: ${required}`);
+    const missing: string[] = [];
+    for (const permission of required) {
+      if (!(await this.evaluator.hasAny(user, [permission])))
+        missing.push(permission);
+    }
+    if (missing.length)
+      throw new ForbiddenException(`Permiso requerido: ${missing.join(', ')}`);
+    if (anyRequired.length) await this.evaluator.requireAny(user, anyRequired);
+    for (const [field, permissions] of Object.entries(bodyPolicies ?? {})) {
+      if (Object.prototype.hasOwnProperty.call(request.body ?? {}, field)) {
+        await this.evaluator.requireAny(user, permissions);
+      }
+    }
     return true;
   }
 }

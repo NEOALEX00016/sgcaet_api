@@ -16,6 +16,8 @@ import { DOCUMENT_STORAGE } from './interfaces/document-storage.interface';
 import type { DocumentStorage } from './interfaces/document-storage.interface';
 import { Inject } from '@nestjs/common';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { ReparacionActivo } from '../reparaciones-activo/entities/reparaciones-activo.entity';
+import { PermissionsEvaluatorService } from '../auth/permissions-evaluator.service';
 
 type UploadedFile = {
   originalname: string;
@@ -56,11 +58,17 @@ const allowedExtensions = new Set([
 const mimeExtensionsMap: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
   'application/msword': ['.doc'],
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [
+    '.docx',
+  ],
   'application/vnd.ms-excel': ['.xls'],
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [
+    '.xlsx',
+  ],
   'application/vnd.ms-powerpoint': ['.ppt'],
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': [
+    '.pptx',
+  ],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
   'image/webp': ['.webp'],
@@ -87,7 +95,10 @@ export class DocumentsService {
     private readonly configService: ConfigService,
     @InjectRepository(Usuario)
     private readonly usuariosRepository: Repository<Usuario>,
+    @InjectRepository(ReparacionActivo)
+    private readonly reparacionesRepository: Repository<ReparacionActivo>,
     private readonly dataSource: DataSource,
+    private readonly permissions: PermissionsEvaluatorService,
   ) {}
 
   async create(
@@ -97,6 +108,7 @@ export class DocumentsService {
   ) {
     await this.validarActor(user);
     this.validateFile(file);
+    await this.validarRelacionReparacion(dto, user);
 
     const extension = this.resolveExtension(file.originalname);
     this.validateMimeAndExtension(file.mimetype, extension);
@@ -108,7 +120,9 @@ export class DocumentsService {
     try {
       const saved = await this.dataSource.transaction(async (manager) => {
         const documentsRepository = manager.getRepository(DocumentEntity);
-        const bitacoraRepository = manager.getRepository(BitacoraAuditoriaSistema);
+        const bitacoraRepository = manager.getRepository(
+          BitacoraAuditoriaSistema,
+        );
 
         const entity = documentsRepository.create({
           empresaId: user.empresaId,
@@ -176,6 +190,14 @@ export class DocumentsService {
         search: `%${query.search.trim()}%`,
       });
     }
+    if (query.entidadRelacionada)
+      qb.andWhere('document.entidad_relacionada = :entidadRelacionada', {
+        entidadRelacionada: query.entidadRelacionada,
+      });
+    if (query.entidadRelacionadaId)
+      qb.andWhere('document.entidad_relacionada_id = :entidadRelacionadaId', {
+        entidadRelacionadaId: query.entidadRelacionadaId,
+      });
 
     qb.orderBy('document.created_at', 'DESC')
       .skip((page - 1) * limit)
@@ -232,13 +254,16 @@ export class DocumentsService {
       where: { id, empresaId: user.empresaId },
     });
     if (!item) throw new NotFoundException(`Documento ${id} no encontrado`);
+    await this.validarEliminacionReparacion(item, user);
 
     const exists = await this.storage.exists(item.storagePath);
     if (!exists) throw new NotFoundException('Archivo fisico inexistente');
 
     await this.dataSource.transaction(async (manager) => {
       const documentsRepository = manager.getRepository(DocumentEntity);
-      const bitacoraRepository = manager.getRepository(BitacoraAuditoriaSistema);
+      const bitacoraRepository = manager.getRepository(
+        BitacoraAuditoriaSistema,
+      );
 
       await documentsRepository.delete({
         id: item.id,
@@ -262,7 +287,9 @@ export class DocumentsService {
     } catch (error) {
       await this.dataSource.transaction(async (manager) => {
         const documentsRepository = manager.getRepository(DocumentEntity);
-        const bitacoraRepository = manager.getRepository(BitacoraAuditoriaSistema);
+        const bitacoraRepository = manager.getRepository(
+          BitacoraAuditoriaSistema,
+        );
 
         await documentsRepository.insert({
           id: item.id,
@@ -285,7 +312,8 @@ export class DocumentsService {
           'DOCUMENTS_DELETE_COMPENSATED',
           item.id,
           {
-            error: error instanceof Error ? error.message : 'storage remove failed',
+            error:
+              error instanceof Error ? error.message : 'storage remove failed',
           },
           {
             restored: true,
@@ -347,7 +375,9 @@ export class DocumentsService {
   private validateMimeAndExtension(mimeType: string, extension: string): void {
     const expected = mimeExtensionsMap[mimeType];
     if (!expected?.includes(extension)) {
-      throw new BadRequestException('Inconsistencia entre MIME type y extension');
+      throw new BadRequestException(
+        'Inconsistencia entre MIME type y extension',
+      );
     }
   }
 
@@ -374,8 +404,8 @@ export class DocumentsService {
     entidadId: string,
     valoresAnteriores: Record<string, unknown> | null,
     valoresNuevos: Record<string, unknown> | null,
-    bitacoraRepository: Repository<BitacoraAuditoriaSistema> =
-      this.bitacoraRepository,
+    bitacoraRepository: Repository<BitacoraAuditoriaSistema> = this
+      .bitacoraRepository,
   ) {
     const registro = bitacoraRepository.create({
       empresaId: user.empresaId,
@@ -398,5 +428,58 @@ export class DocumentsService {
       throw new NotFoundException(
         'Usuario actor no encontrado para la empresa indicada',
       );
+  }
+
+  private async validarRelacionReparacion(
+    dto: CreateDocumentDto,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (dto.entidadRelacionada !== 'reparaciones_activo') return;
+    await this.permissions.requireAny(user, [
+      'reparaciones.documentos.gestionar',
+    ]);
+    if (!dto.entidadRelacionadaId) {
+      throw new BadRequestException(
+        'La orden de taller es obligatoria para documentos de reparacion',
+      );
+    }
+    const reparacion = await this.reparacionesRepository.findOne({
+      where: {
+        id: dto.entidadRelacionadaId,
+        empresaId: user.empresaId,
+      },
+    });
+    if (!reparacion) {
+      throw new NotFoundException('Orden de taller no encontrada');
+    }
+    if (['cerrada', 'cancelada'].includes(reparacion.estado)) {
+      throw new BadRequestException(
+        'Los documentos de una orden cerrada o cancelada son inmutables',
+      );
+    }
+  }
+
+  private async validarEliminacionReparacion(
+    document: DocumentEntity,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (document.entidadRelacionada !== 'reparaciones_activo') return;
+    await this.permissions.requireAny(user, [
+      'reparaciones.documentos.gestionar',
+    ]);
+    const reparacion = await this.reparacionesRepository.findOne({
+      where: {
+        id: document.entidadRelacionadaId,
+        empresaId: user.empresaId,
+      },
+    });
+    if (!reparacion) {
+      throw new NotFoundException('Orden de taller no encontrada');
+    }
+    if (['cerrada', 'cancelada'].includes(reparacion.estado)) {
+      throw new BadRequestException(
+        'Los documentos de una orden cerrada o cancelada son inmutables',
+      );
+    }
   }
 }
